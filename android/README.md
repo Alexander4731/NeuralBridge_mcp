@@ -1,6 +1,6 @@
 # NeuralBridge Android App
 
-Android app providing AI-native automation capabilities via AccessibilityService. Enables sub-100ms UI control for AI agents through a binary protobuf protocol (TCP, port 38472) and an embedded HTTP MCP server (Ktor CIO, port 7474). The HTTP MCP server requires no authentication — any MCP-compatible agent on the same network can connect directly.
+Android app providing AI-native automation capabilities via AccessibilityService. It exposes 32 tools through an embedded HTTP MCP server on `127.0.0.1:7474`. The MCP endpoint requires a per-install bearer token, so it is intended for an agent running on the same device.
 
 ## Quick Start
 
@@ -60,7 +60,7 @@ On first screenshot request, a system dialog will appear asking for permission t
 - Device restart
 - App update/reinstall
 
-If permission is not available, the system automatically falls back to ADB screencap (slower but headless).
+If MediaProjection permission is not available, Android 11+ falls back to `AccessibilityService.takeScreenshot()`. Screenshots are optional; UI tree and selector tools do not need screenshot permission.
 
 ### Verify Installation
 
@@ -71,19 +71,20 @@ adb shell settings get secure enabled_accessibility_services
 # View app logs
 adb logcat -s NeuralBridge:V
 
-# Test MCP HTTP connection (use the IP shown in the app)
-curl http://<device-ip>:7474/health
+# Test the loopback health endpoint
+curl http://127.0.0.1:7474/health
 ```
 
 ### Connection
 
-**Primary — Network (no setup needed):**
-The app displays its IP address on the main screen. Connect from any machine reachable on the same network (WiFi or wired):
-```
-http://<device-ip>:7474/mcp
-```
+The MCP server is local-only. Copy the token from the app's Status tab and send it as a standard bearer token:
 
-No API key or authentication headers are required for either method.
+```bash
+curl -H "Authorization: Bearer $NEURALBRIDGE_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  http://127.0.0.1:7474/mcp
+```
 
 ## Architecture
 
@@ -103,7 +104,7 @@ No API key or authentication headers are required for either method.
    - HTTP MCP server (Ktor CIO, port 7474)
    - JSON-RPC protocol for AI agent tool calls
    - Direct MCP integration without external middleware
-   - No authentication required
+   - Loopback-only listener, bearer authentication, and Origin validation
 
 4. **GestureEngine** (`gesture/`)
    - Gesture execution via `dispatchGesture()`
