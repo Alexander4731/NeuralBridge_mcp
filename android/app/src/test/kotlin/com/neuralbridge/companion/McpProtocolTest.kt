@@ -71,8 +71,8 @@ class McpProtocolTest {
 
 class McpToolRegistryTest {
     @Test
-    fun testToolCountAtLeast30() {
-        assertTrue("Must have at least 30 tools", McpToolRegistry.getAllTools().size >= 30)
+    fun testDocumentedToolCount() {
+        assertEquals("Documented tool count changed", 32, McpToolRegistry.getAllTools().size)
     }
 
     @Test
