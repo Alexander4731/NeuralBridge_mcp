@@ -102,11 +102,11 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
         // Publish instance before conditional startup so MainActivity can query it
         instance = this
 
-        // Only start foreground service, HTTP server, and screen recording if toggle is on
+        // Only start the foreground service and HTTP server if the master toggle is on.
+        // Fast screenshots are opt-in from the Setup tab.
         if (isEnabled()) {
             startForegroundService()
             startMcpHttpServer()
-            requestMediaProjectionPermission()
         }
 
         Log.i(TAG, "NeuralBridge service fully initialized")
@@ -187,44 +187,9 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Request MediaProjection permission for fast screenshot capture
-     *
-     * This is called on service startup to pre-request permission so that
-     * screenshots use the fast path (60ms) instead of AccessibilityService fallback (~200-400ms).
-     *
-     * On Android 14+, this permission is single-use and expires when the
-     * app process is killed or device restarts.
-     */
-    private fun requestMediaProjectionPermission() {
-        // Check if already granted
-        if (screenshotPipeline.hasMediaProjectionPermission()) {
-            Log.i(TAG, "MediaProjection permission already granted")
-            return
-        }
-
-        // Request permission asynchronously
-        serviceScope.launch {
-            delay(1000) // Wait 1 second after service startup before showing dialog
-
-            val granted = screenshotPipeline.requestMediaProjectionPermission()
-
-            if (granted) {
-                Log.i(TAG, "MediaProjection permission granted - fast screenshots enabled")
-                updateNotificationForFastScreenshots()
-            } else {
-                Log.w(TAG, "MediaProjection permission denied - will use AccessibilityService.takeScreenshot() fallback on API 30+")
-            }
-        }
-    }
-
-    /**
      * Try to consume any pending MediaProjection consent result.
-     * Called from MainActivity.onResume() after user grants consent via Setup tab.
-     *
-     * Deliberately calls tryConsumePendingConsent() rather than requestMediaProjectionPermission()
-     * to avoid re-launching ScreenshotConsentActivity. When onResume() fires after the user
-     * accepts the auto-prompted dialog, the service's polling loop may not have consumed the
-     * result yet — calling requestMediaProjectionPermission() would show the popup a second time.
+     * Called from MainActivity.onResume() after the user explicitly grants consent from Setup.
+     * This method only consumes an existing result and never launches a permission prompt.
      */
     fun tryConsumeMediaProjectionConsent() {
         if (screenshotPipeline.hasMediaProjectionPermission()) return
@@ -463,12 +428,13 @@ class NeuralBridgeAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Start MCP server and request MediaProjection — called when user turns on the master toggle
+     * Start the foreground service and MCP server when the master toggle is enabled.
+     * Fast MediaProjection screenshots remain opt-in from the Setup tab; the Accessibility
+     * screenshot fallback is available without interrupting tree-first automation.
      */
     fun enable() {
         startForegroundService()
         startMcpHttpServer()
-        requestMediaProjectionPermission()
     }
 
     /**
