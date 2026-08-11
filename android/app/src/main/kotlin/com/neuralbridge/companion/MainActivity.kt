@@ -3,6 +3,8 @@ package com.neuralbridge.companion
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -31,8 +33,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.neuralbridge.companion.adapter.LogAdapter
 import com.neuralbridge.companion.log.CommandLog
+import com.neuralbridge.companion.mcp.McpAuthManager
 import com.neuralbridge.companion.mcp.McpHttpServer
-import com.neuralbridge.companion.mcp.McpNetworkUtils
 import com.neuralbridge.companion.service.NeuralBridgeAccessibilityService
 
 class MainActivity : Activity() {
@@ -70,6 +72,8 @@ class MainActivity : Activity() {
     private lateinit var screenshotStatusBar: View
     private lateinit var screenshotStatusText: TextView
     private lateinit var deviceInfoText: TextView
+    private lateinit var mcpTokenText: TextView
+    private lateinit var copyMcpTokenButton: Button
     private lateinit var perfP50: TextView
     private lateinit var perfP95: TextView
     private lateinit var perfP99: TextView
@@ -107,6 +111,7 @@ class MainActivity : Activity() {
         findViews()
         setupTabs()
         setupMasterToggle()
+        setupMcpTokenCard()
         setupSetupTab()
         setupLogsTab()
         updateDeviceInfo()
@@ -154,6 +159,8 @@ class MainActivity : Activity() {
         screenshotStatusBar = findViewById(R.id.screenshotStatusBar)
         screenshotStatusText = findViewById(R.id.screenshotStatusText)
         deviceInfoText = findViewById(R.id.deviceInfoText)
+        mcpTokenText = findViewById(R.id.mcpTokenText)
+        copyMcpTokenButton = findViewById(R.id.btnCopyMcpToken)
         perfP50 = findViewById(R.id.perfP50)
         perfP95 = findViewById(R.id.perfP95)
         perfP99 = findViewById(R.id.perfP99)
@@ -256,7 +263,7 @@ class MainActivity : Activity() {
 
         // Connection hero card
         val httpPort = service?.getMcpHttpPort() ?: McpHttpServer.MCP_PORT
-        val wifiIp = McpNetworkUtils.getWifiIpAddress(this) ?: "device-ip"
+        val mcpUrl = "http://${McpHttpServer.MCP_HOST}:$httpPort/mcp"
         if (!enabled) {
             connectionStatusIcon.text = "⬡"
             connectionStatusText.text = "NEURALBRIDGE IS OFF"
@@ -266,12 +273,12 @@ class MainActivity : Activity() {
             connectionStatusIcon.text = "📡"
             connectionStatusText.text = "CONNECTED"
             connectionStatusText.setTextColor(getColor(R.color.success))
-            connectionDetailText.text = "MCP: http://$wifiIp:$httpPort/mcp"
+            connectionDetailText.text = "MCP: $mcpUrl"
         } else {
             connectionStatusIcon.text = "📡"
             connectionStatusText.text = "WAITING FOR CONNECTION"
             connectionStatusText.setTextColor(getColor(R.color.text_medium_emphasis))
-            connectionDetailText.text = "MCP: http://$wifiIp:$httpPort/mcp"
+            connectionDetailText.text = "MCP: $mcpUrl"
         }
 
         // 3-up status grid
@@ -298,10 +305,19 @@ class MainActivity : Activity() {
             append("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
             append("Screen: ${dm.widthPixels}x${dm.heightPixels} @ ${dm.densityDpi}dpi\n")
             append("Density: ${dm.density}x")
-            val wifiIp3 = McpNetworkUtils.getWifiIpAddress(this@MainActivity) ?: "no wifi"
-            append("\nMCP: http://$wifiIp3:${McpHttpServer.MCP_PORT}/mcp")
+            append("\nMCP: http://${McpHttpServer.MCP_HOST}:${McpHttpServer.MCP_PORT}/mcp")
         }
         deviceInfoText.text = info
+    }
+
+    private fun setupMcpTokenCard() {
+        val token = McpAuthManager(this).getOrCreateApiKey()
+        mcpTokenText.text = "${token.take(8)}...${token.takeLast(4)}"
+        copyMcpTokenButton.setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("NeuralBridge MCP token", token))
+            Toast.makeText(this, "MCP token copied", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun updatePerformanceStats() {

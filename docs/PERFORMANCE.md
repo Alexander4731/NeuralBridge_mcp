@@ -6,7 +6,7 @@
 
 ## 📊 Benchmarks
 
-All NeuralBridge measurements taken on a Pixel-class device over WiFi HTTP. Competitor latencies sourced from official documentation, community benchmarks, and architectural analysis.
+The upstream NeuralBridge measurements below were taken on a Pixel-class device over WiFi HTTP. This maintained fork uses same-device loopback HTTP, removing the WiFi hop; the historical numbers are retained for comparison rather than presented as a new benchmark. Competitor latencies are sourced from official documentation, community benchmarks, and architectural analysis.
 
 | Operation | NeuralBridge | Appium | Maestro | mobile-mcp | droidrun | ADB Shell |
 |---|---|---|---|---|---|---|

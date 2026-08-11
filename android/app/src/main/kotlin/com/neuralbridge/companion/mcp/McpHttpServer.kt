@@ -3,6 +3,7 @@ package com.neuralbridge.companion.mcp
 import android.content.Context
 import android.os.PowerManager
 import android.util.Log
+import com.neuralbridge.companion.BuildConfig
 import com.neuralbridge.companion.log.CommandLog
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -25,12 +26,23 @@ class McpHttpServer(
 ) {
     companion object {
         const val MCP_PORT = 7474
+        const val MCP_HOST = "127.0.0.1"
+        const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+        const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
         private const val TAG = "McpHttpServer"
         private const val SERVER_NAME = "neuralbridge-android"
-        private const val SERVER_VERSION = "0.4.0"
-        private const val PROTOCOL_VERSION = "2024-11-05"
+        private const val SERVER_VERSION = BuildConfig.VERSION_NAME
+        internal const val SERVER_INSTRUCTIONS =
+            "Prefer structured Accessibility data over screenshots. Start with android_get_ui_tree " +
+                "or android_find_elements, act with selectors, then wait with android_wait_for_idle, " +
+                "android_wait_for_element, or android_wait_for_gone. Use android_get_screen_context " +
+                "only when combined context helps. Call android_screenshot only for canvases, images, " +
+                "visual ambiguity, or explicit visual verification. Root is not exposed by " +
+                "NeuralBridge; use Termux su -c separately when needed."
         private const val SCREEN_WAKE_LOCK_TIMEOUT_MS = 5L * 60 * 1000 // 5 minutes
     }
+
+    private val authManager = McpAuthManager(context)
 
     @Volatile
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -62,13 +74,12 @@ class McpHttpServer(
             "NeuralBridge::McpClientScreen"
         ).apply { setReferenceCounted(false) }
 
-        val wifiIp = McpNetworkUtils.getWifiIpAddress(context)
-        Log.i(TAG, "Starting MCP HTTP server on 0.0.0.0:$port (WiFi: $wifiIp)")
+        Log.i(TAG, "Starting MCP HTTP server on $MCP_HOST:$port")
 
-        server = embeddedServer(CIO, port = port, host = "0.0.0.0") {
+        server = embeddedServer(CIO, port = port, host = MCP_HOST) {
             routing {
                 get("/") {
-                    call.respondText("NeuralBridge MCP Server v$SERVER_VERSION — POST /mcp")
+                    call.respondText("NeuralBridge MCP Server v$SERVER_VERSION - POST /mcp")
                 }
 
                 get("/health") {
@@ -80,9 +91,22 @@ class McpHttpServer(
 
                 // CORS preflight for browser-based MCP clients
                 options("/mcp") {
-                    call.response.headers.append("Access-Control-Allow-Origin", "*")
+                    val origin = call.request.headers[HttpHeaders.Origin]
+                    if (origin == null || !McpRequestSecurity.isAllowedOrigin(origin)) {
+                        call.respond(HttpStatusCode.Forbidden)
+                        return@options
+                    }
+                    appendCorsHeaders(call, origin)
                     call.response.headers.append("Access-Control-Allow-Methods", "POST, OPTIONS")
-                    call.response.headers.append("Access-Control-Allow-Headers", "Content-Type")
+                    call.response.headers.append(
+                        "Access-Control-Allow-Headers",
+                        listOf(
+                            HttpHeaders.ContentType,
+                            HttpHeaders.Authorization,
+                            MCP_PROTOCOL_VERSION_HEADER,
+                            MCP_SESSION_ID_HEADER
+                        ).joinToString(", ")
+                    )
                     call.respond(HttpStatusCode.NoContent)
                 }
 
@@ -90,10 +114,13 @@ class McpHttpServer(
                     handleMcpPost(call)
                 }
 
-                // OAuth discovery — return 404 with valid JSON body so Claude Code
-                // doesn't crash on empty 404. Returning 404 signals "no auth required".
+                // Static bearer tokens are configured directly in the MCP client.
                 get("/.well-known/oauth-protected-resource") {
-                    call.respondText("{}", ContentType.Application.Json, HttpStatusCode.NotFound)
+                    call.respondText(
+                        "{\"error\":\"OAuth is not supported; configure the NeuralBridge bearer token\"}",
+                        ContentType.Application.Json,
+                        HttpStatusCode.NotFound
+                    )
                 }
                 get("/.well-known/oauth-authorization-server") {
                     call.respondText("{}", ContentType.Application.Json, HttpStatusCode.NotFound)
@@ -105,15 +132,45 @@ class McpHttpServer(
 
         }.start(wait = false)
 
-        Log.i(TAG, "MCP HTTP server started. URL: http://${wifiIp ?: "device-ip"}:$port/mcp")
+        Log.i(TAG, "MCP HTTP server started. URL: http://$MCP_HOST:$port/mcp")
     }
 
     private suspend fun handleMcpPost(call: ApplicationCall) {
+        val origin = call.request.headers[HttpHeaders.Origin]
+        if (!McpRequestSecurity.isAllowedOrigin(origin)) {
+            call.respondText(
+                "{\"error\":\"forbidden_origin\"}",
+                ContentType.Application.Json,
+                HttpStatusCode.Forbidden
+            )
+            return
+        }
+
+        origin?.let { appendCorsHeaders(call, it) }
+
+        if (!authManager.validateAuthorizationHeader(call.request.headers[HttpHeaders.Authorization])) {
+            call.response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer realm=\"NeuralBridge MCP\"")
+            call.response.headers.append(HttpHeaders.CacheControl, "no-store")
+            call.respondText(
+                "{\"error\":\"unauthorized\"}",
+                ContentType.Application.Json,
+                HttpStatusCode.Unauthorized
+            )
+            return
+        }
+
+        val protocolHeader = call.request.headers[MCP_PROTOCOL_VERSION_HEADER]
+        if (!McpProtocolVersions.isSupportedHeader(protocolHeader)) {
+            call.respondText(
+                "{\"error\":\"unsupported_protocol_version\"}",
+                ContentType.Application.Json,
+                HttpStatusCode.BadRequest
+            )
+            return
+        }
+
         lastRequestTimestamp.set(System.currentTimeMillis())
         screenWakeLock?.acquire(SCREEN_WAKE_LOCK_TIMEOUT_MS)
-
-        // CORS
-        call.response.headers.append("Access-Control-Allow-Origin", "*")
 
         // Parse request body
         val body = call.receiveText()
@@ -132,8 +189,12 @@ class McpHttpServer(
         Log.d(TAG, "MCP request: method=${request.method}, id=${request.id}")
 
         // Route by method
+        var newSessionId: String? = null
         val response: JsonRpcResponse? = when (request.method) {
-            "initialize" -> handleInitialize(request)
+            "initialize" -> {
+                newSessionId = createSession()
+                handleInitialize(request)
+            }
             "notifications/initialized" -> null  // client ACK, no response
             "ping" -> successResponse(request.id, buildJsonObject {})
             "tools/list" -> handleToolsList(request)
@@ -145,26 +206,23 @@ class McpHttpServer(
         }
 
         if (response != null) {
+            newSessionId?.let { call.response.headers.append(MCP_SESSION_ID_HEADER, it) }
             call.respondText(
                 json.encodeToString(JsonRpcResponse.serializer(), response),
                 ContentType.Application.Json
             )
         } else {
-            call.respond(HttpStatusCode.NoContent)
+            call.respond(HttpStatusCode.Accepted)
         }
     }
 
     private fun handleInitialize(request: JsonRpcRequest): JsonRpcResponse {
-        val sessionId = UUID.randomUUID().toString()
-        // Evict oldest entries if cap reached to prevent unbounded growth
-        if (sessions.size >= MAX_SESSIONS) {
-            sessions.entries.minByOrNull { it.value }?.let { sessions.remove(it.key) }
-        }
-        sessions[sessionId] = System.currentTimeMillis()
-        Log.i(TAG, "MCP client initialized. Session: $sessionId")
+        val requestedVersion = McpProtocolVersions.requestedVersion(request.params)
+        val negotiatedVersion = McpProtocolVersions.negotiate(requestedVersion)
+        Log.i(TAG, "MCP protocol negotiated: requested=$requestedVersion selected=$negotiatedVersion")
 
         return successResponse(request.id, buildJsonObject {
-            put("protocolVersion", PROTOCOL_VERSION)
+            put("protocolVersion", negotiatedVersion)
             putJsonObject("capabilities") {
                 putJsonObject("tools") {
                     put("listChanged", false)
@@ -174,7 +232,24 @@ class McpHttpServer(
                 put("name", SERVER_NAME)
                 put("version", SERVER_VERSION)
             }
+            put("instructions", SERVER_INSTRUCTIONS)
         })
+    }
+
+    private fun createSession(): String {
+        val sessionId = UUID.randomUUID().toString()
+        // Evict oldest entries if cap reached to prevent unbounded growth
+        if (sessions.size >= MAX_SESSIONS) {
+            sessions.entries.minByOrNull { it.value }?.let { sessions.remove(it.key) }
+        }
+        sessions[sessionId] = System.currentTimeMillis()
+        Log.i(TAG, "MCP client initialized. Session: $sessionId")
+        return sessionId
+    }
+
+    private fun appendCorsHeaders(call: ApplicationCall, origin: String) {
+        call.response.headers.append(HttpHeaders.AccessControlAllowOrigin, origin)
+        call.response.headers.append(HttpHeaders.Vary, HttpHeaders.Origin)
     }
 
     private fun handleToolsList(request: JsonRpcRequest): JsonRpcResponse {

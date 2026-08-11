@@ -9,8 +9,8 @@ class McpToolRegistryTest {
     private val tools = McpToolRegistry.getAllTools()
 
     @Test
-    fun `registry returns at least 30 tools`() {
-        assertTrue("Expected ≥30 tools, got ${tools.size}", tools.size >= 30)
+    fun `registry returns the documented 32 tools`() {
+        assertEquals("Documented tool count changed", 32, tools.size)
     }
 
     @Test

@@ -132,4 +132,36 @@ class McpProtocolTest {
         assertEquals(-32602, JsonRpcErrorCodes.INVALID_PARAMS)
         assertEquals(-32603, JsonRpcErrorCodes.INTERNAL_ERROR)
     }
+
+    @Test
+    fun `protocol negotiation preserves supported Codex versions`() {
+        McpProtocolVersions.SUPPORTED.forEach { version ->
+            assertEquals(version, McpProtocolVersions.negotiate(version))
+            assertTrue(McpProtocolVersions.isSupportedHeader(version))
+        }
+    }
+
+    @Test
+    fun `protocol negotiation falls back to latest supported version`() {
+        assertEquals(McpProtocolVersions.LATEST, McpProtocolVersions.negotiate(null))
+        assertEquals(McpProtocolVersions.LATEST, McpProtocolVersions.negotiate("2099-01-01"))
+        assertTrue(McpProtocolVersions.isSupportedHeader(null))
+        assertFalse(McpProtocolVersions.isSupportedHeader("2099-01-01"))
+    }
+
+    @Test
+    fun `protocol version is read from initialize params`() {
+        val params = buildJsonObject { put("protocolVersion", "2025-06-18") }
+        assertEquals("2025-06-18", McpProtocolVersions.requestedVersion(params))
+    }
+
+    @Test
+    fun `server instructions keep agents tree first`() {
+        val instructions = McpHttpServer.SERVER_INSTRUCTIONS
+        assertTrue(instructions.length <= 512)
+        assertTrue(instructions.contains("android_get_ui_tree"))
+        assertTrue(instructions.contains("android_wait_for_idle"))
+        assertTrue(instructions.contains("android_screenshot only"))
+        assertTrue(instructions.contains("Termux su -c"))
+    }
 }

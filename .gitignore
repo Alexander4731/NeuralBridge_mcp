@@ -9,7 +9,6 @@
 **/.gradle/
 **/.kotlin/
 **/gradle-app.setting
-!gradle-wrapper.jar
 
 # Android Studio / IntelliJ
 **/.idea/
@@ -46,7 +45,7 @@
 *.dex
 *.class
 *.jar
-!/gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 
 # Signing files
 *.jks

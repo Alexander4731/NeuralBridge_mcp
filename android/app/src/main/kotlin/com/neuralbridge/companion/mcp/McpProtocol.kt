@@ -3,6 +3,24 @@ package com.neuralbridge.companion.mcp
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
+object McpProtocolVersions {
+    const val LATEST = "2025-11-25"
+    val SUPPORTED = setOf(
+        "2024-11-05",
+        "2025-03-26",
+        "2025-06-18",
+        LATEST
+    )
+
+    fun requestedVersion(params: JsonElement?): String? =
+        params?.jsonObject?.get("protocolVersion")?.jsonPrimitive?.contentOrNull
+
+    fun negotiate(requested: String?): String =
+        requested?.takeIf { it in SUPPORTED } ?: LATEST
+
+    fun isSupportedHeader(version: String?): Boolean = version == null || version in SUPPORTED
+}
+
 // JSON-RPC 2.0 error codes
 object JsonRpcErrorCodes {
     const val PARSE_ERROR = -32700

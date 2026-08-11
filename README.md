@@ -16,7 +16,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 License" /></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-0.4.0-success" alt="v0.4.0" /></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/Version-0.4.1--nb1-success" alt="v0.4.1-nb1" /></a>
   <a href="docs/TOOLS.md"><img src="https://img.shields.io/badge/MCP%20Tools-32-brightgreen" alt="32 Tools" /></a>
   <a href="docs/PERFORMANCE.md"><img src="https://img.shields.io/badge/Avg%20Latency-6.4ms-brightgreen" alt="6.4ms" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 7+" /></a>
@@ -49,7 +49,7 @@ NeuralBridge takes a different approach: an on-device AccessibilityService that 
 | 🌳 UI tree read | **18-33ms** | 500-2000ms | 750ms-2s | 1-5s | 200-500ms | 1-5s |
 | 📸 Screenshot | **~60ms** | 300-500ms | ~1s | 300-500ms | ~250ms | 300-500ms |
 | 🔌 MCP native | **Yes** | Add-on | Yes (stdio) | Yes | Via adapter | No |
-| 🛠️ MCP tools | **43** | 30+ (add-on) | 14+ | ~19 | ~11 | — |
+| 🛠️ MCP tools | **32** | 30+ (add-on) | 14+ | ~19 | ~11 | — |
 | 🎯 Token optimization | **Yes (73%)** | No | No | No | No | No |
 
 > [!TIP]
@@ -59,7 +59,7 @@ NeuralBridge takes a different approach: an on-device AccessibilityService that 
 
 ## 🏗️ How It Works
 
-Your AI agent speaks MCP over HTTP directly to the companion app — no middleware, no ADB, no intermediate server.
+Your on-device AI agent speaks MCP over loopback HTTP directly to the companion app — no middleware, no ADB, no intermediate server. The server binds only to `127.0.0.1` and requires a per-install bearer token.
 
 <p align="center">
   <img src="docs/diagrams/architecture.svg" alt="NeuralBridge Architecture" width="800" />
@@ -77,7 +77,7 @@ Your AI agent speaks MCP over HTTP directly to the companion app — no middlewa
 ### 1️⃣ Clone & Build
 
 ```bash
-git clone https://github.com/dondetir/NeuralBridge_mcp.git
+git clone https://github.com/Alexander4731/NeuralBridge_mcp.git
 cd NeuralBridge_mcp/android
 ./gradlew assembleDebug
 ```
@@ -97,24 +97,38 @@ adb shell settings put secure accessibility_enabled 1
 > [!IMPORTANT]
 > **Android 15+** requires an extra step: Settings → Apps → NeuralBridge → Enable **"Allow restricted settings"**
 
-### 3️⃣ Connect Your AI Agent
+### 3️⃣ Connect Termux Codex
 
-The app shows its IP on the main screen. Add it to your agent's MCP config:
+Open NeuralBridge's Status tab and tap **COPY TOKEN**, then configure the token in Termux:
 
 ```bash
-# Claude Code
-claude mcp add neuralbridge http://<device-ip>:7474/mcp --transport http
+mkdir -p ~/.config/neuralbridge
+chmod 700 ~/.config/neuralbridge
+umask 077
+read -rsp 'NeuralBridge token: ' NB_TOKEN; echo
+printf "export NEURALBRIDGE_TOKEN='%s'\n" "$NB_TOKEN" > ~/.config/neuralbridge/env
+unset NB_TOKEN
+. ~/.config/neuralbridge/env
+
+codex mcp add neuralbridge \
+  --url http://127.0.0.1:7474/mcp \
+  --bearer-token-env-var NEURALBRIDGE_TOKEN
 ```
 
+This does not change the model provider, model name, or custom API relay in your existing Codex configuration. See [Termux + Codex setup](docs/TERMUX_CODEX.md) for persistent environment loading, root usage, and a tree-first workflow.
+
 <details>
-<summary>📋 Manual config (Claude Desktop / any MCP client)</summary>
+<summary>Manual config for another MCP client</summary>
 
 ```json
 {
   "mcpServers": {
     "neuralbridge": {
       "type": "http",
-      "url": "http://<device-ip>:7474/mcp"
+      "url": "http://127.0.0.1:7474/mcp",
+      "headers": {
+        "Authorization": "Bearer &lt;token copied from the app&gt;"
+      }
     }
   }
 }
@@ -124,7 +138,7 @@ claude mcp add neuralbridge http://<device-ip>:7474/mcp --transport http
 
 ### 4️⃣ Verify
 
-Ask your AI agent: *"Take a screenshot of the Android device"* — if you see a screenshot, you're connected! 🎉
+Run `codex mcp get neuralbridge`, then ask Codex to list the Android tools and read the current UI tree. Screenshots remain available, but are not required for the normal perception loop.
 
 ---
 
@@ -138,6 +152,7 @@ Ask your AI agent: *"Take a screenshot of the Android device"* — if you see a 
 | 🔧 | [**Troubleshooting**](docs/TROUBLESHOOTING.md) | Connection issues, permissions, screenshots, crashes |
 | 🔨 | [**Development**](docs/DEVELOPMENT.md) | Building from source, project structure, protobuf, logs |
 | 📱 | [**Android App**](android/README.md) | App-specific setup and permissions |
+| 📟 | [**Termux + Codex**](docs/TERMUX_CODEX.md) | Bearer token, custom API relay coexistence, root, tree-first usage |
 | 🤝 | [**Contributing**](CONTRIBUTING.md) | Code style, PR process, guidelines |
 | 🔒 | [**Security**](SECURITY.md) | Vulnerability reporting policy |
 
