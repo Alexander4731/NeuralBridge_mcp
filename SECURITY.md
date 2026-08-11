@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.x     | Yes       |
+| 0.4.1-nb1 | Yes     |
 
 ## Reporting a Vulnerability
 
@@ -14,7 +14,7 @@ If you discover a security vulnerability in NeuralBridge, please report it respo
 
 ### How to Report
 
-Use [GitHub's private vulnerability reporting](https://github.com/dondetir/NeuralBridge_mcp/security/advisories/new) to submit your report.
+Use [GitHub's private vulnerability reporting](https://github.com/Alexander4731/NeuralBridge_mcp/security/advisories/new) to submit your report.
 
 ### What to Include
 
@@ -55,17 +55,19 @@ We will coordinate disclosure with you. Credit will be given in the release note
 
 ### Network exposure
 
-NeuralBridge runs an **MCP HTTP server (Ktor CIO) on port 7474, bound to 0.0.0.0** (all network interfaces). This is network-facing by design — the AI agent connects over WiFi from another machine on the same local network. There is **no TLS**; all traffic is plaintext HTTP.
+NeuralBridge runs an MCP HTTP server (Ktor CIO) on `127.0.0.1:7474`. It is intentionally reachable only by processes on the same Android device. There is no TLS because traffic never leaves the local network namespace.
 
 A legacy TCP/protobuf server on port 38472 is still present but binds to **localhost only** and is not used by MCP clients.
 
 ### Authentication
 
-An API key infrastructure exists (`McpAuthManager.kt` — generates and stores a per-device UUID key), but it is **not currently enforced** on incoming HTTP requests. Any device on the same network can call MCP tools without authentication.
+Every `/mcp` POST requires `Authorization: Bearer <token>`. New installations receive a 256-bit random token stored in private app preferences. Existing installations retain their previously generated token. Comparison uses `MessageDigest.isEqual`, and unauthorized responses include `WWW-Authenticate: Bearer`.
+
+Android apps share the device network namespace, so loopback binding alone is not treated as authentication. The app shows only a shortened token preview and provides an explicit copy action for configuring the local MCP client.
 
 ### CORS
 
-The `/mcp` endpoint returns `Access-Control-Allow-Origin: *`, allowing requests from any browser origin.
+Native clients may omit `Origin`. Every supplied `Origin` is parsed and must use HTTP(S) with `localhost`, `127.0.0.1`, or `::1`; all others receive HTTP 403. CORS responses echo only an accepted origin and include `Vary: Origin`.
 
 ### AccessibilityService
 
@@ -73,9 +75,9 @@ The companion app uses Android's AccessibilityService API, which grants full UI 
 
 ### Known risks
 
-- **No auth enforcement:** Anyone on the same WiFi network can invoke all 32 MCP tools, including gestures, text input, and screenshot capture.
-- **No encryption:** HTTP traffic (including screenshots and UI tree data) is transmitted in plaintext.
-- **Full device control:** The AccessibilityService can perform any UI action a human user can. Combined with the lack of auth, this means any local network attacker has full device control.
-- **CORS wildcard:** Browser-based attacks from any origin can reach the server if the attacker knows the device IP.
+- **Full device control:** A client with the bearer token can invoke gestures, text input, UI reads, and screenshot capture.
+- **Root boundary:** Device root can bypass Android app sandbox protections. Root commands remain in Termux and are not exposed as NeuralBridge MCP tools.
+- **Token handling:** Copying the token places it on the Android clipboard. Clear or replace the clipboard after configuring Termux on sensitive devices.
+- **Local denial of service:** Another local app can connect to the loopback port, but cannot make authenticated tool calls without the token.
 
-These are accepted trade-offs for a development/research tool. Do not run NeuralBridge on untrusted networks.
+Treat the token like a local password. Do not put it in Git, screenshots, shell history, issue reports, or shared logs.
