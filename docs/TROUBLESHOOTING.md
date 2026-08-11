@@ -5,14 +5,18 @@
 ### 🌐 Cannot connect to MCP server (HTTP)
 
 ```bash
-# 1. Check that both devices are reachable on the same network
-#    The app shows its IP on the main screen
+# Verify the same-device loopback server is running
+curl http://127.0.0.1:7474/health
 
-# 2. Verify the server is running (use the IP shown in the app)
-curl http://<device-ip>:7474/health
+# Verify the token and MCP endpoint
+. ~/.config/neuralbridge/env
+curl -i -H "Authorization: Bearer $NEURALBRIDGE_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  http://127.0.0.1:7474/mcp
 ```
 
-Also check that the NeuralBridge toggle is enabled in the app — the MCP server only runs when the toggle is on.
+Also check that the NeuralBridge toggle is enabled in the app; the MCP server only runs when the toggle is on. HTTP 401 means the token is missing or wrong. HTTP 403 means a non-loopback browser Origin was supplied.
 
 ---
 
@@ -32,9 +36,9 @@ On Android 15+, you may also need to enable **"Allow restricted settings"** for 
 
 ---
 
-### 📸 Screenshots return fallback (ADB screencap)
+### 📸 Screenshots use the fallback path
 
-MediaProjection requires a one-time user consent. Open the NeuralBridge app on the device and trigger a screenshot — tap "Start now" on the system dialog. On Android 14+, this consent resets when the app process dies.
+MediaProjection requires a one-time user consent. Open the NeuralBridge app on the device and trigger a screenshot, then tap "Start now" on the system dialog. On Android 14+, this consent resets when the app process dies. Android 11+ can use `AccessibilityService.takeScreenshot()` as a slower fallback; UI tree workflows need neither path.
 
 ---
 
